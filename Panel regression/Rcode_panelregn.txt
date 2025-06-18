@@ -1,0 +1,107 @@
+
+
+
+#############################################################
+# Crime example
+
+# For each city, we have data on number of police and number of murders
+# What is the expected relationship?
+
+library(readxl)
+crime <- read_excel("crime.xlsx")
+
+plot(crime$police,crime$murders)
+abline(lm(crime$murders ~ crime$police))
+
+ols <-  lm(crime$murders ~ crime$police)
+summary(ols)
+
+# if we want to just focus on the coefficients:
+coef(summary(ols))
+
+
+
+#############################################################
+# panel regression
+
+# install.packages("plm")
+library(plm)
+crime.panel <- plm.data(crime, index=c("city","time"))
+# Fixed effects or "within" estimator
+fixed <- plm(murders ~ police, data=crime.panel, model= "within")
+summary(fixed)
+fd <- plm(murders ~ police, data=crime.panel, model= "fd")
+summary(fd)
+# "city - 1" here means we remove the constant term because we have a dummy for each city
+lsdv <- plm(murders ~ police + city - 1, data=crime.panel, model= "pooling")
+summary(lsdv)
+
+# put the results in a nice table
+# install.packages("stargazer")
+library(stargazer)
+stargazer(ols, fixed, fd, lsdv, type="text", 
+  dep.var.labels=c("OLS", "Fixed effects", "First diffs", "LSDV"), 
+  covariate.labels=c("police"), 
+  out = "crime_results.txt")
+
+
+
+#############################################################
+# FE and FD transform the data differently 
+
+# put the data into panel format
+# install.packages("plm")
+library(plm)
+crime <- plm.data(crime, index=c("city","time"))
+
+
+# check the mean for each city
+tapply(crime$murders,crime$city, mean)
+
+
+# We can manually remove the means and perform OLS on demeaned data
+#  this is equivalent to FE
+# for the "demean" function
+# install.packages("parameters")
+library(parameters)
+demean(crime,select=c("murders","police"), group="city")
+
+# now we attach this to the "crime" dataset
+crime <- cbind(crime, demean(crime,select=c("murders","police"), group="city"))
+
+# we estimate OLS on the demeaned data
+ols_dem <- lm(murders_within ~ police_within, data=crime)
+summary(ols_dem)
+# this is the same as the FE regression on the untransformed variables
+fe <- plm(murders ~ police, data=crime, model = "within")
+summary(fe)
+
+
+plot(crime$police_within,crime$murders_within)
+abline(lm(crime$murders_within ~ crime$police_within))
+
+
+
+# now, manually calculate the first differences
+library(dplyr)
+crime <- cbind(crime %>% 
+  group_by(city) %>% 
+  mutate(m1d = murders - lag(murders)) %>% 
+  mutate(p1d = police  - lag(police)) %>% 
+  ungroup)
+
+
+fd <- lm(m1d ~ p1d, data=crime)
+summary(fd)
+# this is the same as first-differencing
+summary(plm(murders ~ police, data=crime,model = "fd"))
+
+
+
+plot(crime$p1d,crime$m1d)
+abline(plm(murders ~ police, data=crime,model = "fd"))
+
+
+
+
+
